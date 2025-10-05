@@ -1,4 +1,4 @@
-name: test
+name: Test
 
 on:
   push:
@@ -13,127 +13,144 @@ permissions: {}
 
 jobs:
   package:
+    name: Build Package
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
-      with:
-        fetch-depth: 0
-        persist-credentials: false
-    - name: Build and Check Package
-      uses: hynek/build-and-inspect-python-package@c52c3a4710070b50470d903818a7b25115dcd076
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-  build:
-    needs: [package]
+      - name: Build and Check Package
+        uses: hynek/build-and-inspect-python-package@c52c3a4710070b50470d903818a7b25115dcd076
 
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: Packages
+          path: dist
+
+  test:
+    name: Run Tests
+    needs: package
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    permissions:
-      contents: read
-
     strategy:
       fail-fast: false
       matrix:
-        name: ["ubuntu-py312"]
-
-        include:          
-          - name: "ubuntu-py312"
-            python: "3.12"
+        include:
+          - python: "3.12"
             os: ubuntu-latest
             tox_env: "py312"
             use_coverage: true
 
+          - python: "3.12"
+            os: macos-latest
+            tox_env: "py312-xdist"
+            use_coverage: true
+
     steps:
-    - uses: actions/checkout@v5
-      with:
-        fetch-depth: 0
-        persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-    - name: Download Package
-      uses: actions/download-artifact@v5
-      with:
-        name: Packages
-        path: dist
+      - name: Download Package
+        uses: actions/download-artifact@v5
+        with:
+          name: Packages
+          path: dist
 
-    - name: Set up Python ${{ matrix.python }}
-      uses: actions/setup-python@v6
-      with:
-        python-version: ${{ matrix.python }}
-        check-latest: true
-        allow-prereleases: true
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          check-latest: true
+          allow-prereleases: true
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install tox coverage
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install tox coverage
+          pip install dist/*.whl
 
-    - name: Test without coverage
-      if: "! matrix.use_coverage"
-      shell: bash
-      run: tox run -e ${{ matrix.tox_env }} --installpkg `find dist/*.tar.gz`
+      - name: Run tests with coverage
+        if: matrix.use_coverage
+        run: tox run -e ${{ matrix.tox_env }}-coverage --installpkg dist/*.whl
+
+      - name: Run tests without coverage
+        if: "! matrix.use_coverage"
+        run: tox run -e ${{ matrix.tox_env }} --installpkg dist/*.whl
+
+      - name: Generate coverage report
+        if: matrix.use_coverage
+        run: python -m coverage xml
+
+      - name: Upload coverage to Codecov
+        if: matrix.use_coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          verbose: true
 
   test-with-testmon:
-    name: Run tests with pytest-testmon
-    needs: [package]
+    name: Pytest-Testmon Incremental
+    needs: package
     runs-on: ${{ matrix.os }}
-
     strategy:
       fail-fast: false
       matrix:
-        name: ["ubuntu-py312"]
-
-        include:          
-          - name: "ubuntu-py312"
-            python: "3.12"
+        include:
+          - python: "3.12"
             os: ubuntu-latest
             tox_env: "py312"
-            use_coverage: true
-            
+
+          - python: "3.12"
+            os: macos-latest
+            tox_env: "py312-xdist"
+
     steps:
-    - uses: actions/checkout@v5
-      with:
-        fetch-depth: 0
-        persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-    - name: Download Package
-      uses: actions/download-artifact@v5
-      with:
-        name: Packages
-        path: dist
+      - name: Download Package
+        uses: actions/download-artifact@v5
+        with:
+          name: Packages
+          path: dist
 
-    - name: Set up Python ${{ matrix.python }}
-      uses: actions/setup-python@v6
-      with:
-        python-version: ${{ matrix.python }}
-        check-latest: true
-        allow-prereleases: true
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          check-latest: true
+          allow-prereleases: true
 
-    - name: Restore .testmondata cache
-      uses: actions/cache@v4
-      with:
-        path: .testmondata
-        key: testmon-${{ github.ref_name }}
-        restore-keys: |
-          testmon-
+      - name: Restore testmon cache
+        uses: actions/cache@v4
+        with:
+          path: .testmondata
+          key: testmon-${{ github.ref_name }}
+          restore-keys: testmon-
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pytest-testmon
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install dist/*.whl pytest-testmon
 
-    - name: First run (full, builds testmon cache)
-      run: |
-        pip install dist/*.whl
-        time pytest --testmon
+      - name: First run (full, build testmon cache)
+        run: |
+          pytest --testmon
 
-    - name: Save testmon cache
-      uses: actions/cache/save@v4
-      with:
-        path: .testmondata
-        key: testmon-${{ github.ref_name }}-${{ github.run_id }}
+      - name: Save testmon cache
+        uses: actions/cache@v4
+        with:
+          path: .testmondata
+          key: testmon-${{ github.ref_name }}
 
-    - name: Second run (incremental)
-      run: |
-        echo "Running incremental testmon pass"
-        time pytest --testmon
-
-    
+      - name: Second run (incremental)
+        run: |
+          echo "Running incremental testmon pass"
+          pytest --testmon
