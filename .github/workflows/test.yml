@@ -118,14 +118,6 @@ jobs:
           check-latest: true
           allow-prereleases: true
 
-      - name: Restore .testmondata cache
-        uses: actions/cache@v4
-        with:
-          path: .testmondata
-          key: testmon-${{ github.ref_name }}
-          restore-keys: |
-            testmon-
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
