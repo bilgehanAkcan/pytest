@@ -354,7 +354,7 @@ indent = 4
 max_supported_python = "3.14"
 
 [tool.pytest.ini_options]
-# minversion = "2.0"
+minversion = "2.0"
 addopts = "-rfEX -p pytester --strict-markers"
 python_files = [
     "test_*.py",
