@@ -132,17 +132,20 @@ jobs:
           pip install pytest-testmon setuptools hypothesis attrs xmlschema
 
       - name: First run (full, builds testmon cache)
+        continue-on-error: true
         run: |
           pip install -e .  # installs your package in editable mode
           time pytest --testmon
 
       - name: Save testmon cache
+        if: always()
         uses: actions/cache/save@v4
         with:
           path: .testmondata
           key: testmon-${{ github.ref_name }}-${{ github.run_id }}
 
       - name: Second run (incremental)
+        if: always()
         run: |
           echo "Running incremental testmon pass"
           time pytest --testmon
